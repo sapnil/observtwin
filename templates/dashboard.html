@@ -1,0 +1,312 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Factory Digital Twin Dashboard</title>
+<style>
+  :root {
+    --bg: #0f1117; --surface: #1a1d27; --border: #2a2d3e;
+    --text: #e2e8f0; --muted: #64748b;
+    --green: #22c55e; --yellow: #eab308; --red: #ef4444; --gray: #6b7280;
+    --green-bg: rgba(34,197,94,.12); --yellow-bg: rgba(234,179,8,.12);
+    --red-bg: rgba(239,68,68,.12);   --gray-bg: rgba(107,114,128,.12);
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { background: var(--bg); color: var(--text); font-family: 'Segoe UI', system-ui, sans-serif; min-height: 100vh; }
+
+  header { background: var(--surface); border-bottom: 1px solid var(--border); padding: 16px 24px;
+           display: flex; align-items: center; justify-content: space-between; }
+  header h1 { font-size: 1.25rem; font-weight: 600; }
+  .nav-links a { color: var(--muted); text-decoration: none; margin-left: 20px; font-size: .9rem; }
+  .nav-links a:hover { color: var(--text); }
+  .conn-badge { display: flex; align-items: center; gap: 6px; font-size: .8rem; color: var(--muted); }
+  .conn-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--gray); }
+  .conn-dot.live { background: var(--green); box-shadow: 0 0 6px var(--green); animation: pulse 2s infinite; }
+  @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.5} }
+
+  main { padding: 24px; max-width: 1400px; margin: 0 auto; }
+
+  .summary-bar { display: flex; gap: 12px; margin-bottom: 24px; flex-wrap: wrap; }
+  .summary-card { background: var(--surface); border: 1px solid var(--border); border-radius: 10px;
+                  padding: 14px 20px; flex: 1; min-width: 130px; }
+  .summary-card .label { font-size: .75rem; color: var(--muted); text-transform: uppercase; letter-spacing: .05em; }
+  .summary-card .value { font-size: 1.8rem; font-weight: 700; margin-top: 4px; }
+  .summary-card.s-running .value { color: var(--green); }
+  .summary-card.s-idle    .value { color: var(--yellow); }
+  .summary-card.s-error   .value { color: var(--red); }
+  .summary-card.s-offline .value { color: var(--gray); }
+
+  .section-title { font-size: .85rem; font-weight: 600; color: var(--muted); text-transform: uppercase;
+                   letter-spacing: .08em; margin-bottom: 14px; }
+
+  .machines-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 16px; margin-bottom: 32px; }
+
+  .machine-card { background: var(--surface); border: 1px solid var(--border); border-radius: 12px;
+                  padding: 18px; cursor: pointer; transition: transform .15s, border-color .15s; position: relative; overflow: hidden; }
+  .machine-card:hover { transform: translateY(-2px); }
+  .machine-card::before { content: ''; position: absolute; top: 0; left: 0; right: 0; height: 3px; border-radius: 12px 12px 0 0; }
+  .machine-card.running { border-color: rgba(34,197,94,.3); background: linear-gradient(135deg, var(--surface), var(--green-bg)); }
+  .machine-card.running::before { background: var(--green); }
+  .machine-card.idle    { border-color: rgba(234,179,8,.3);  background: linear-gradient(135deg, var(--surface), var(--yellow-bg)); }
+  .machine-card.idle::before    { background: var(--yellow); }
+  .machine-card.error   { border-color: rgba(239,68,68,.3);  background: linear-gradient(135deg, var(--surface), var(--red-bg)); }
+  .machine-card.error::before   { background: var(--red); animation: flash 1s infinite; }
+  .machine-card.offline { border-color: rgba(107,114,128,.3); }
+  .machine-card.offline::before { background: var(--gray); }
+  @keyframes flash { 0%,100%{opacity:1} 50%{opacity:.3} }
+
+  .card-header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 12px; }
+  .machine-name { font-weight: 600; font-size: 1rem; }
+  .machine-id   { font-size: .75rem; color: var(--muted); margin-top: 2px; }
+  .status-badge { padding: 3px 10px; border-radius: 20px; font-size: .72rem; font-weight: 600; text-transform: uppercase; letter-spacing: .05em; }
+  .status-badge.running { background: var(--green-bg);  color: var(--green); }
+  .status-badge.idle    { background: var(--yellow-bg); color: var(--yellow); }
+  .status-badge.error   { background: var(--red-bg);    color: var(--red); }
+  .status-badge.offline { background: var(--gray-bg);   color: var(--gray); }
+
+  .metrics { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px; margin-top: 12px; }
+  .metric { background: rgba(255,255,255,.04); border-radius: 8px; padding: 8px; text-align: center; }
+  .metric .m-label { font-size: .65rem; color: var(--muted); text-transform: uppercase; }
+  .metric .m-value { font-size: .95rem; font-weight: 600; margin-top: 2px; }
+  .metric .m-unit  { font-size: .6rem; color: var(--muted); }
+
+  .card-footer { margin-top: 12px; font-size: .72rem; color: var(--muted); display: flex; justify-content: space-between; }
+
+  /* Alerts panel */
+  .alerts-panel { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 18px; }
+  .alert-item { display: flex; align-items: flex-start; gap: 10px; padding: 10px 0; border-bottom: 1px solid var(--border); }
+  .alert-item:last-child { border-bottom: none; }
+  .alert-icon { width: 28px; height: 28px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: .85rem; flex-shrink: 0; margin-top: 2px; }
+  .alert-icon.error   { background: var(--red-bg);  color: var(--red); }
+  .alert-icon.offline { background: var(--gray-bg); color: var(--gray); }
+  .alert-msg  { font-size: .85rem; }
+  .alert-time { font-size: .72rem; color: var(--muted); margin-top: 2px; }
+  .no-alerts  { color: var(--muted); font-size: .85rem; text-align: center; padding: 20px 0; }
+
+  /* Modal */
+  .modal-overlay { display: none; position: fixed; inset: 0; background: rgba(0,0,0,.6); z-index: 100; align-items: center; justify-content: center; }
+  .modal-overlay.open { display: flex; }
+  .modal { background: var(--surface); border: 1px solid var(--border); border-radius: 14px; padding: 24px; width: 90%; max-width: 520px; max-height: 80vh; overflow-y: auto; }
+  .modal h2 { font-size: 1.1rem; margin-bottom: 16px; }
+  .modal-close { float: right; background: none; border: none; color: var(--muted); font-size: 1.2rem; cursor: pointer; }
+  .history-item { display: flex; justify-content: space-between; padding: 7px 0; border-bottom: 1px solid var(--border); font-size: .82rem; }
+  .history-item:last-child { border-bottom: none; }
+
+  .layout { display: grid; grid-template-columns: 1fr 340px; gap: 24px; }
+  @media(max-width: 900px) { .layout { grid-template-columns: 1fr; } }
+</style>
+</head>
+<body>
+
+<header>
+  <div>
+    <h1>⚙️ Factory Digital Twin</h1>
+  </div>
+  <nav class="nav-links">
+    <a href="/">Dashboard</a>
+    <a href="/analytics">Analytics</a>
+    <a href="/docs" target="_blank">API Docs</a>
+  </nav>
+  <div class="conn-badge">
+    <div class="conn-dot" id="connDot"></div>
+    <span id="connStatus">Connecting…</span>
+  </div>
+</header>
+
+<main>
+  <!-- Summary bar -->
+  <div class="summary-bar">
+    <div class="summary-card s-running"><div class="label">Running</div><div class="value" id="cnt-running">–</div></div>
+    <div class="summary-card s-idle">   <div class="label">Idle</div>   <div class="value" id="cnt-idle">–</div></div>
+    <div class="summary-card s-error">  <div class="label">Error</div>  <div class="value" id="cnt-error">–</div></div>
+    <div class="summary-card s-offline"><div class="label">Offline</div><div class="value" id="cnt-offline">–</div></div>
+    <div class="summary-card"><div class="label">Total Machines</div><div class="value" id="cnt-total">–</div></div>
+  </div>
+
+  <div class="layout">
+    <div>
+      <div class="section-title">Machine Status</div>
+      <div class="machines-grid" id="machinesGrid"></div>
+    </div>
+    <div>
+      <div class="section-title">Recent Alerts</div>
+      <div class="alerts-panel" id="alertsPanel"><div class="no-alerts">Loading…</div></div>
+    </div>
+  </div>
+</main>
+
+<!-- History modal -->
+<div class="modal-overlay" id="modalOverlay">
+  <div class="modal">
+    <button class="modal-close" onclick="closeModal()">✕</button>
+    <h2 id="modalTitle">History</h2>
+    <div id="modalBody"></div>
+  </div>
+</div>
+
+<script>
+const machines = {};
+let alerts = [];
+
+// ── SSE ───────────────────────────────────────────────────────────────────────
+function connect() {
+  const es = new EventSource('/events');
+  es.onopen = () => setConn(true);
+  es.onerror = () => { setConn(false); setTimeout(connect, 3000); es.close(); };
+  es.onmessage = (e) => {
+    const msg = JSON.parse(e.data);
+    if (msg.event === 'snapshot') {
+      msg.machines.forEach(m => machines[m.machine_id] = m);
+      renderAll();
+      loadAlerts();
+    } else if (msg.event === 'heartbeat' || msg.event === 'status_change') {
+      if (msg.event === 'heartbeat') {
+        machines[msg.machine_id] = {
+          ...machines[msg.machine_id],
+          status: msg.status,
+          last_heartbeat: msg.timestamp,
+          health_metrics: msg.health_metrics,
+        };
+      } else {
+        if (machines[msg.machine_id]) machines[msg.machine_id].status = msg.status;
+      }
+      renderCard(msg.machine_id);
+      updateSummary();
+    } else if (msg.event === 'alert') {
+      alerts.unshift(msg);
+      if (alerts.length > 50) alerts.pop();
+      renderAlerts();
+    }
+  };
+}
+
+function setConn(live) {
+  document.getElementById('connDot').className = 'conn-dot' + (live ? ' live' : '');
+  document.getElementById('connStatus').textContent = live ? 'Live' : 'Reconnecting…';
+}
+
+// ── Render ────────────────────────────────────────────────────────────────────
+function renderAll() {
+  const grid = document.getElementById('machinesGrid');
+  grid.innerHTML = '';
+  Object.values(machines).forEach(m => {
+    const div = document.createElement('div');
+    div.id = 'card-' + m.machine_id;
+    grid.appendChild(div);
+    renderCard(m.machine_id);
+  });
+  updateSummary();
+}
+
+function renderCard(mid) {
+  const m = machines[mid];
+  if (!m) return;
+  let el = document.getElementById('card-' + mid);
+  if (!el) {
+    el = document.createElement('div');
+    el.id = 'card-' + mid;
+    document.getElementById('machinesGrid').appendChild(el);
+  }
+  const hm = m.health_metrics || {};
+  const lastSeen = m.last_heartbeat ? timeSince(m.last_heartbeat) : '–';
+  el.className = 'machine-card ' + m.status;
+  el.onclick = () => openModal(mid);
+  el.innerHTML = `
+    <div class="card-header">
+      <div>
+        <div class="machine-name">${m.name || mid}</div>
+        <div class="machine-id">${mid} · ${m.location || ''}</div>
+      </div>
+      <span class="status-badge ${m.status}">${m.status}</span>
+    </div>
+    <div class="metrics">
+      <div class="metric">
+        <div class="m-label">Temp</div>
+        <div class="m-value">${hm.temperature != null ? hm.temperature : '–'}</div>
+        <div class="m-unit">°C</div>
+      </div>
+      <div class="metric">
+        <div class="m-label">Vibration</div>
+        <div class="m-value">${hm.vibration != null ? hm.vibration : '–'}</div>
+        <div class="m-unit">mm/s</div>
+      </div>
+      <div class="metric">
+        <div class="m-label">Power</div>
+        <div class="m-value">${hm.power_consumption != null ? hm.power_consumption : '–'}</div>
+        <div class="m-unit">kW</div>
+      </div>
+    </div>
+    <div class="card-footer">
+      <span>Last heartbeat: ${lastSeen}</span>
+      <span>Click for history</span>
+    </div>`;
+}
+
+function updateSummary() {
+  const counts = {running:0, idle:0, error:0, offline:0};
+  Object.values(machines).forEach(m => counts[m.status] = (counts[m.status]||0)+1);
+  document.getElementById('cnt-running').textContent = counts.running;
+  document.getElementById('cnt-idle').textContent    = counts.idle;
+  document.getElementById('cnt-error').textContent   = counts.error;
+  document.getElementById('cnt-offline').textContent = counts.offline;
+  document.getElementById('cnt-total').textContent   = Object.keys(machines).length;
+}
+
+function renderAlerts() {
+  const panel = document.getElementById('alertsPanel');
+  if (!alerts.length) { panel.innerHTML = '<div class="no-alerts">No alerts yet</div>'; return; }
+  panel.innerHTML = alerts.slice(0, 20).map(a => `
+    <div class="alert-item">
+      <div class="alert-icon ${a.alert_type === 'error_state' ? 'error' : 'offline'}">
+        ${a.alert_type === 'error_state' ? '⚠' : '⊘'}
+      </div>
+      <div>
+        <div class="alert-msg">${a.message}</div>
+        <div class="alert-time">${new Date(a.timestamp).toLocaleString()}</div>
+      </div>
+    </div>`).join('');
+}
+
+async function loadAlerts() {
+  const res = await fetch('/api/alerts?limit=50');
+  const data = await res.json();
+  alerts = data.alerts.reverse();
+  renderAlerts();
+}
+
+// ── Modal ─────────────────────────────────────────────────────────────────────
+async function openModal(mid) {
+  document.getElementById('modalTitle').textContent = (machines[mid]?.name || mid) + ' – Recent History';
+  document.getElementById('modalBody').innerHTML = '<p style="color:var(--muted);font-size:.85rem">Loading…</p>';
+  document.getElementById('modalOverlay').classList.add('open');
+  const res = await fetch(`/api/machines/${mid}/history?limit=20`);
+  const data = await res.json();
+  const rows = data.records.slice().reverse().map(r => {
+    const hm = r.health_metrics || {};
+    return `<div class="history-item">
+      <span>${new Date(r.timestamp).toLocaleString()}</span>
+      <span class="status-badge ${r.status}" style="padding:2px 8px">${r.status}</span>
+      <span style="color:var(--muted)">${hm.temperature != null ? hm.temperature+'°C' : '–'}</span>
+    </div>`;
+  }).join('');
+  document.getElementById('modalBody').innerHTML = rows || '<p style="color:var(--muted)">No records</p>';
+}
+function closeModal() { document.getElementById('modalOverlay').classList.remove('open'); }
+document.getElementById('modalOverlay').addEventListener('click', e => { if(e.target===e.currentTarget) closeModal(); });
+
+// ── Helpers ───────────────────────────────────────────────────────────────────
+function timeSince(iso) {
+  const diff = Math.floor((Date.now() - new Date(iso)) / 1000);
+  if (diff < 60)   return diff + 's ago';
+  if (diff < 3600) return Math.floor(diff/60) + 'm ago';
+  return Math.floor(diff/3600) + 'h ago';
+}
+
+// Refresh "last seen" labels every 30 s
+setInterval(() => Object.keys(machines).forEach(renderCard), 30000);
+
+connect();
+</script>
+</body>
+</html>

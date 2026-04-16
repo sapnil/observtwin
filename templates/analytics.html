@@ -1,0 +1,201 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Analytics – Factory Digital Twin</title>
+<style>
+  :root {
+    --bg: #0f1117; --surface: #1a1d27; --border: #2a2d3e;
+    --text: #e2e8f0; --muted: #64748b;
+    --green: #22c55e; --yellow: #eab308; --red: #ef4444; --gray: #6b7280;
+    --green-bg: rgba(34,197,94,.15); --yellow-bg: rgba(234,179,8,.15);
+    --red-bg: rgba(239,68,68,.15);   --gray-bg: rgba(107,114,128,.15);
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { background: var(--bg); color: var(--text); font-family: 'Segoe UI', system-ui, sans-serif; }
+
+  header { background: var(--surface); border-bottom: 1px solid var(--border); padding: 16px 24px;
+           display: flex; align-items: center; justify-content: space-between; }
+  header h1 { font-size: 1.25rem; font-weight: 600; }
+  .nav-links a { color: var(--muted); text-decoration: none; margin-left: 20px; font-size: .9rem; }
+  .nav-links a:hover { color: var(--text); }
+
+  main { padding: 24px; max-width: 1200px; margin: 0 auto; }
+  .controls { display: flex; gap: 12px; align-items: center; margin-bottom: 24px; flex-wrap: wrap; }
+  .controls label { font-size: .85rem; color: var(--muted); }
+  select, button { background: var(--surface); border: 1px solid var(--border); color: var(--text);
+                   padding: 8px 14px; border-radius: 8px; font-size: .85rem; cursor: pointer; }
+  button:hover { border-color: var(--green); color: var(--green); }
+
+  .section-title { font-size: .85rem; font-weight: 600; color: var(--muted); text-transform: uppercase;
+                   letter-spacing: .08em; margin-bottom: 14px; }
+
+  .fleet-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 16px; margin-bottom: 32px; }
+  .fleet-card { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 18px; }
+  .fleet-card h3 { font-size: .95rem; margin-bottom: 4px; }
+  .fleet-card .sub { font-size: .75rem; color: var(--muted); margin-bottom: 14px; }
+
+  .bar-row { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; font-size: .8rem; }
+  .bar-label { width: 70px; color: var(--muted); flex-shrink: 0; }
+  .bar-track { flex: 1; background: rgba(255,255,255,.06); border-radius: 4px; height: 8px; overflow: hidden; }
+  .bar-fill  { height: 100%; border-radius: 4px; transition: width .5s; }
+  .bar-fill.running { background: var(--green); }
+  .bar-fill.idle    { background: var(--yellow); }
+  .bar-fill.error   { background: var(--red); }
+  .bar-fill.offline { background: var(--gray); }
+  .bar-pct { width: 38px; text-align: right; color: var(--muted); }
+
+  .kpi-row { display: flex; gap: 10px; margin-top: 12px; }
+  .kpi { flex: 1; background: rgba(255,255,255,.04); border-radius: 8px; padding: 8px; text-align: center; }
+  .kpi .kv { font-size: 1.1rem; font-weight: 700; }
+  .kpi .kl { font-size: .65rem; color: var(--muted); text-transform: uppercase; margin-top: 2px; }
+  .kpi.uptime .kv { color: var(--green); }
+  .kpi.errors .kv { color: var(--red); }
+
+  .detail-section { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 20px; margin-bottom: 24px; }
+  .detail-section h2 { font-size: 1rem; margin-bottom: 16px; }
+  .machine-select { margin-bottom: 16px; }
+  .detail-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 12px; }
+  .detail-kpi { background: rgba(255,255,255,.04); border-radius: 10px; padding: 14px; text-align: center; }
+  .detail-kpi .dv { font-size: 1.4rem; font-weight: 700; }
+  .detail-kpi .dl { font-size: .7rem; color: var(--muted); text-transform: uppercase; margin-top: 4px; }
+
+  .dist-bars { margin-top: 16px; }
+  .loading { color: var(--muted); font-size: .85rem; padding: 20px 0; text-align: center; }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>⚙️ Factory Digital Twin</h1>
+  <nav class="nav-links">
+    <a href="/">Dashboard</a>
+    <a href="/analytics">Analytics</a>
+    <a href="/docs" target="_blank">API Docs</a>
+  </nav>
+</header>
+
+<main>
+  <div class="controls">
+    <label>Time window:</label>
+    <select id="hoursSelect" onchange="loadAll()">
+      <option value="6">Last 6 hours</option>
+      <option value="24" selected>Last 24 hours</option>
+      <option value="48">Last 48 hours</option>
+    </select>
+    <button onclick="loadAll()">↻ Refresh</button>
+  </div>
+
+  <div class="section-title">Fleet Overview</div>
+  <div class="fleet-grid" id="fleetGrid"><div class="loading">Loading…</div></div>
+
+  <div class="detail-section">
+    <h2>Machine Deep-Dive</h2>
+    <div class="machine-select">
+      <select id="machineSelect" onchange="loadDetail()">
+        <option value="">Select a machine…</option>
+      </select>
+    </div>
+    <div id="detailContent" class="loading">Select a machine above.</div>
+  </div>
+</main>
+
+<script>
+async function loadAll() {
+  const hours = document.getElementById('hoursSelect').value;
+  const [fleetRes, machinesRes] = await Promise.all([
+    fetch(`/api/analytics?hours=${hours}`),
+    fetch('/api/machines'),
+  ]);
+  const fleet    = await fleetRes.json();
+  const machines = await machinesRes.json();
+
+  // Populate machine selector
+  const sel = document.getElementById('machineSelect');
+  const prev = sel.value;
+  sel.innerHTML = '<option value="">Select a machine…</option>' +
+    machines.map(m => `<option value="${m.machine_id}">${m.name || m.machine_id}</option>`).join('');
+  if (prev) sel.value = prev;
+
+  renderFleet(fleet.fleet, machines);
+  if (sel.value) loadDetail();
+}
+
+function renderFleet(fleet, machines) {
+  const grid = document.getElementById('fleetGrid');
+  if (!Object.keys(fleet).length) { grid.innerHTML = '<div class="loading">No data</div>'; return; }
+
+  const machineMap = {};
+  machines.forEach(m => machineMap[m.machine_id] = m);
+
+  grid.innerHTML = Object.entries(fleet).map(([mid, d]) => {
+    const m = machineMap[mid] || {};
+    // Build status distribution bars from fleet data (uptime + error; rest = idle/offline)
+    const runPct  = d.uptime_pct;
+    const errPct  = d.error_pct;
+    const restPct = Math.max(0, 100 - runPct - errPct);
+    return `
+    <div class="fleet-card">
+      <h3>${m.name || mid}</h3>
+      <div class="sub">${mid} · ${m.location || ''}</div>
+      <div class="bar-row"><span class="bar-label">Running</span>
+        <div class="bar-track"><div class="bar-fill running" style="width:${runPct}%"></div></div>
+        <span class="bar-pct">${runPct}%</span></div>
+      <div class="bar-row"><span class="bar-label">Error</span>
+        <div class="bar-track"><div class="bar-fill error" style="width:${errPct}%"></div></div>
+        <span class="bar-pct">${errPct}%</span></div>
+      <div class="bar-row"><span class="bar-label">Other</span>
+        <div class="bar-track"><div class="bar-fill offline" style="width:${restPct}%"></div></div>
+        <span class="bar-pct">${restPct.toFixed(1)}%</span></div>
+      <div class="kpi-row">
+        <div class="kpi uptime"><div class="kv">${runPct}%</div><div class="kl">Uptime</div></div>
+        <div class="kpi errors"><div class="kv">${errPct}%</div><div class="kl">Error Rate</div></div>
+        <div class="kpi"><div class="kv">${d.total_records}</div><div class="kl">Records</div></div>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+async function loadDetail() {
+  const mid = document.getElementById('machineSelect').value;
+  if (!mid) return;
+  const hours = document.getElementById('hoursSelect').value;
+  const content = document.getElementById('detailContent');
+  content.innerHTML = '<div class="loading">Loading…</div>';
+
+  const res  = await fetch(`/api/analytics/${mid}?hours=${hours}`);
+  const data = await res.json();
+  if (data.message) { content.innerHTML = `<div class="loading">${data.message}</div>`; return; }
+
+  const dist = data.status_distribution || {};
+  const total = data.total_records || 1;
+  const am = data.avg_metrics_while_running || {};
+
+  const statusColors = {running:'var(--green)', idle:'var(--yellow)', error:'var(--red)', offline:'var(--gray)'};
+
+  content.innerHTML = `
+    <div class="detail-grid">
+      <div class="detail-kpi"><div class="dv" style="color:var(--green)">${data.uptime_percentage}%</div><div class="dl">Uptime</div></div>
+      <div class="detail-kpi"><div class="dv" style="color:var(--red)">${data.error_percentage}%</div><div class="dl">Error Rate</div></div>
+      <div class="detail-kpi"><div class="dv">${data.total_records}</div><div class="dl">Total Records</div></div>
+      <div class="detail-kpi"><div class="dv">${am.temperature != null ? am.temperature+'°C' : '–'}</div><div class="dl">Avg Temp</div></div>
+      <div class="detail-kpi"><div class="dv">${am.vibration != null ? am.vibration+' mm/s' : '–'}</div><div class="dl">Avg Vibration</div></div>
+      <div class="detail-kpi"><div class="dv">${am.power_consumption != null ? am.power_consumption+' kW' : '–'}</div><div class="dl">Avg Power</div></div>
+    </div>
+    <div class="dist-bars" style="margin-top:20px">
+      <div class="section-title" style="margin-bottom:10px">Status Distribution</div>
+      ${Object.entries(dist).map(([s, c]) => `
+        <div class="bar-row">
+          <span class="bar-label" style="text-transform:capitalize">${s}</span>
+          <div class="bar-track"><div class="bar-fill ${s}" style="width:${(c/total*100).toFixed(1)}%"></div></div>
+          <span class="bar-pct">${(c/total*100).toFixed(1)}%</span>
+          <span style="color:var(--muted);font-size:.75rem;margin-left:6px">(${c})</span>
+        </div>`).join('')}
+    </div>`;
+}
+
+loadAll();
+</script>
+</body>
+</html>
