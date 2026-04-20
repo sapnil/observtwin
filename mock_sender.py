@@ -21,14 +21,14 @@ MACHINES = [
 ]
 
 STATUS_WEIGHTS = {
-    "CNC-001": ["running"] * 7 + ["idle"] * 2 + ["error"],
-    "CNC-002": ["running"] * 6 + ["idle"] * 3 + ["error"],
-    "WLD-001": ["running"] * 8 + ["idle"],
-    "WLD-002": ["running"] * 5 + ["idle"] * 3 + ["error"] * 2,
-    "PRS-001": ["running"] * 6 + ["idle"] * 3 + ["offline"],
+    "CNC-001": ["running"] * 7 + ["anomaly"] * 2 + ["error"],
+    "CNC-002": ["running"] * 6 + ["anomaly"] * 3 + ["error"],
+    "WLD-001": ["running"] * 8 + ["anomaly"],
+    "WLD-002": ["running"] * 5 + ["anomaly"] * 3 + ["error"] * 2,
+    "PRS-001": ["running"] * 6 + ["anomaly"] * 3 + ["offline"],
     "CNV-001": ["running"] * 9,
-    "CMR-001": ["running"] * 4 + ["idle"] * 4 + ["error"] * 2,
-    "ASM-001": ["offline"] * 3 + ["running"] * 5 + ["idle"] * 2,
+    "CMR-001": ["running"] * 4 + ["anomaly"] * 4 + ["error"] * 2,
+    "ASM-001": ["offline"] * 3 + ["running"] * 5 + ["anomaly"] * 2,
 }
 
 BASE_METRICS = {
@@ -43,7 +43,7 @@ def _metrics(mid: str, status: str) -> dict:
     if status == "offline":
         return {"temperature": None, "vibration": None, "power_consumption": None}
     t, v, p = BASE_METRICS[mid]
-    m = 1.3 if status == "error" else (0.4 if status == "idle" else 1.0)
+    m = 1.3 if status == "error" else (0.4 if status == "anomaly" else 1.0)
     return {
         "temperature":       round(t * m + random.uniform(-3, 3), 1),
         "vibration":         round(v * m + random.uniform(-0.2, 0.2), 2),

@@ -292,3 +292,8 @@ async def dashboard(request: Request):
 @app.get("/analytics", response_class=HTMLResponse, include_in_schema=False)
 async def analytics_page(request: Request):
     return templates.TemplateResponse("analytics.html", {"request": request})
+
+
+@app.get("/shopfloor", response_class=HTMLResponse, include_in_schema=False)
+async def shopfloor_page(request: Request):
+    return templates.TemplateResponse("shopfloor.html", {"request": request})

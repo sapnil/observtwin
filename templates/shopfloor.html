@@ -1,0 +1,524 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>3D Shop Floor – Factory Digital Twin</title>
+<style>
+  :root {
+    --bg: #0f1117; --surface: #1a1d27; --border: #2a2d3e;
+    --text: #e2e8f0; --muted: #64748b;
+    --green: #22c55e; --yellow: #eab308; --red: #ef4444; --gray: #6b7280;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { background: var(--bg); color: var(--text); font-family: 'Segoe UI', system-ui, sans-serif; height: 100vh; display: flex; flex-direction: column; overflow: hidden; }
+
+  header { background: var(--surface); border-bottom: 1px solid var(--border); padding: 12px 24px;
+           display: flex; align-items: center; justify-content: space-between; flex-shrink: 0; }
+  header h1 { font-size: 1.1rem; font-weight: 600; }
+  .nav-links a { color: var(--muted); text-decoration: none; margin-left: 20px; font-size: .9rem; }
+  .nav-links a:hover { color: var(--text); }
+  .conn-badge { display: flex; align-items: center; gap: 6px; font-size: .8rem; color: var(--muted); }
+  .conn-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--gray); }
+  .conn-dot.live { background: var(--green); box-shadow: 0 0 6px var(--green); animation: pulse 2s infinite; }
+  @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.5} }
+
+  #canvas-wrap { flex: 1; position: relative; }
+  canvas { display: block; width: 100% !important; height: 100% !important; }
+
+  /* Tooltip */
+  #tooltip {
+    position: absolute; pointer-events: none; display: none;
+    background: var(--surface); border: 1px solid var(--border); border-radius: 10px;
+    padding: 12px 16px; min-width: 200px; font-size: .82rem; z-index: 10;
+  }
+  #tooltip .t-name { font-weight: 600; font-size: .95rem; margin-bottom: 6px; }
+  #tooltip .t-row  { display: flex; justify-content: space-between; gap: 16px; color: var(--muted); margin-top: 3px; }
+  #tooltip .t-val  { color: var(--text); }
+  .badge { display: inline-block; padding: 2px 8px; border-radius: 20px; font-size: .7rem; font-weight: 600; text-transform: uppercase; }
+  .badge.running { background: rgba(34,197,94,.15);  color: var(--green); }
+  .badge.anomaly { background: rgba(234,179,8,.15);  color: var(--yellow); }
+  .badge.error   { background: rgba(239,68,68,.15);  color: var(--red); }
+  .badge.offline { background: rgba(107,114,128,.15);color: var(--gray); }
+
+  /* Legend */
+  #legend {
+    position: absolute; bottom: 16px; left: 16px;
+    background: var(--surface); border: 1px solid var(--border); border-radius: 10px;
+    padding: 10px 14px; font-size: .78rem; display: flex; gap: 14px;
+  }
+  .leg { display: flex; align-items: center; gap: 6px; }
+  .leg-dot { width: 10px; height: 10px; border-radius: 3px; }
+
+  /* Controls hint */
+  #hint {
+    position: absolute; bottom: 16px; right: 16px;
+    color: var(--muted); font-size: .72rem; text-align: right; line-height: 1.6;
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>🏭 3D Shop Floor</h1>
+  <nav class="nav-links">
+    <a href="/">Dashboard</a>
+    <a href="/analytics">Analytics</a>
+    <a href="/shopfloor">3D Shop Floor</a>
+    <a href="/docs" target="_blank">API Docs</a>
+  </nav>
+  <div class="conn-badge">
+    <div class="conn-dot" id="connDot"></div>
+    <span id="connStatus">Connecting…</span>
+  </div>
+</header>
+
+<div id="canvas-wrap">
+  <canvas id="c"></canvas>
+
+  <div id="tooltip">
+    <div class="t-name" id="t-name"></div>
+    <div class="t-row"><span>ID</span><span class="t-val" id="t-id"></span></div>
+    <div class="t-row"><span>Location</span><span class="t-val" id="t-loc"></span></div>
+    <div class="t-row"><span>Status</span><span class="t-val" id="t-status"></span></div>
+    <div class="t-row"><span>Temp</span><span class="t-val" id="t-temp"></span></div>
+    <div class="t-row"><span>Vibration</span><span class="t-val" id="t-vib"></span></div>
+    <div class="t-row"><span>Power</span><span class="t-val" id="t-pwr"></span></div>
+    <div class="t-row"><span>Last seen</span><span class="t-val" id="t-last"></span></div>
+  </div>
+
+  <div id="legend">
+    <div class="leg"><div class="leg-dot" style="background:#22c55e"></div>Running</div>
+    <div class="leg"><div class="leg-dot" style="background:#eab308"></div>Anomaly</div>
+    <div class="leg"><div class="leg-dot" style="background:#ef4444"></div>Error</div>
+    <div class="leg"><div class="leg-dot" style="background:#6b7280"></div>Offline</div>
+  </div>
+
+  <div id="hint">Drag to orbit · Scroll to zoom · Right-drag to pan</div>
+</div>
+
+<script type="importmap">
+{
+  "imports": {
+    "three": "https://cdn.jsdelivr.net/npm/three@0.165.0/build/three.module.js",
+    "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.165.0/examples/jsm/"
+  }
+}
+</script>
+
+<script type="module">
+import * as THREE from 'three';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+
+// ── Machine layout positions (x, z) on the floor ─────────────────────────────
+const LAYOUT = {
+  'CNC-001': { x: -6,  z: -4,  label: 'CNC Lathe α' },
+  'CNC-002': { x: -2,  z: -4,  label: 'CNC Lathe β' },
+  'WLD-001': { x:  2,  z: -4,  label: 'Welding R.1' },
+  'WLD-002': { x:  6,  z: -4,  label: 'Welding R.2' },
+  'PRS-001': { x: -6,  z:  2,  label: 'Hyd. Press'  },
+  'CNV-001': { x: -1,  z:  2,  label: 'Conveyor'    },
+  'CMR-001': { x:  4,  z:  2,  label: 'Compressor'  },
+  'ASM-001': { x:  8,  z:  2,  label: 'Assembly Arm'},
+};
+
+const STATUS_COLOR = {
+  running: 0x22c55e,
+  anomaly: 0xeab308,
+  error:   0xef4444,
+  offline: 0x6b7280,
+};
+
+// ── Scene setup ───────────────────────────────────────────────────────────────
+const canvas = document.getElementById('c');
+const wrap   = document.getElementById('canvas-wrap');
+const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
+renderer.setPixelRatio(devicePixelRatio);
+renderer.shadowMap.enabled = true;
+renderer.setClearColor(0x0f1117);
+
+const scene  = new THREE.Scene();
+const camera = new THREE.PerspectiveCamera(45, 1, 0.1, 200);
+camera.position.set(0, 14, 18);
+
+const controls = new OrbitControls(camera, canvas);
+controls.enableDamping = true;
+controls.dampingFactor = 0.08;
+controls.minDistance = 5;
+controls.maxDistance = 50;
+controls.maxPolarAngle = Math.PI / 2.1;
+
+// Lights
+scene.add(new THREE.AmbientLight(0xffffff, 0.6));
+const dirLight = new THREE.DirectionalLight(0xffffff, 1.2);
+dirLight.position.set(10, 20, 10);
+dirLight.castShadow = true;
+scene.add(dirLight);
+
+// Floor
+const floorGeo = new THREE.PlaneGeometry(30, 20);
+const floorMat = new THREE.MeshStandardMaterial({ color: 0x1a1d27, roughness: 0.9 });
+const floor = new THREE.Mesh(floorGeo, floorMat);
+floor.rotation.x = -Math.PI / 2;
+floor.receiveShadow = true;
+scene.add(floor);
+
+// Floor grid
+const grid = new THREE.GridHelper(30, 30, 0x2a2d3e, 0x2a2d3e);
+scene.add(grid);
+
+// Zone labels (floor areas)
+const zones = [
+  { label: 'Floor A', x: -4, z: -5.5 },
+  { label: 'Floor B', x:  4, z: -5.5 },
+  { label: 'Floor C', x: -3.5, z: 0.5 },
+  { label: 'Floor D / Utility', x: 6, z: 0.5 },
+];
+
+// ── Machine meshes ────────────────────────────────────────────────────────────
+const machineObjects = {};   // mid → { group, parts[], ring }
+const machines = {};         // mid → live data
+
+function mat(color) {
+  return new THREE.MeshStandardMaterial({ color, roughness: 0.45, metalness: 0.65 });
+}
+function mesh(geo, color) {
+  const m = new THREE.Mesh(geo, mat(color));
+  m.castShadow = true;
+  return m;
+}
+
+// ── Shape builders ────────────────────────────────────────────────────────────
+
+function buildCNC(group) {
+  // Bed
+  const bed = mesh(new THREE.BoxGeometry(1.8, 0.3, 1.2), 0x334155);
+  bed.position.y = 0.15;
+  // Headstock tower
+  const head = mesh(new THREE.BoxGeometry(0.5, 1.2, 0.5), 0x475569);
+  head.position.set(-0.55, 0.75, 0);
+  // Spindle chuck (torus)
+  const chuck = mesh(new THREE.TorusGeometry(0.22, 0.07, 8, 24), 0x94a3b8);
+  chuck.rotation.y = Math.PI / 2;
+  chuck.position.set(-0.3, 0.75, 0);
+  // Tailstock
+  const tail = mesh(new THREE.BoxGeometry(0.3, 0.6, 0.3), 0x475569);
+  tail.position.set(0.55, 0.45, 0);
+  // Carriage
+  const carriage = mesh(new THREE.BoxGeometry(0.4, 0.25, 0.9), 0x64748b);
+  carriage.position.set(0.1, 0.4, 0);
+  [bed, head, chuck, tail, carriage].forEach(p => group.add(p));
+  return [bed, head, chuck, tail, carriage];
+}
+
+function buildWelder(group) {
+  // Base plate
+  const base = mesh(new THREE.CylinderGeometry(0.6, 0.7, 0.25, 16), 0x334155);
+  base.position.y = 0.125;
+  // Vertical column
+  const col = mesh(new THREE.CylinderGeometry(0.18, 0.22, 1.4, 12), 0x475569);
+  col.position.y = 0.95;
+  // Shoulder joint
+  const shoulder = mesh(new THREE.SphereGeometry(0.22, 12, 12), 0x64748b);
+  shoulder.position.y = 1.7;
+  // Upper arm
+  const upper = mesh(new THREE.CylinderGeometry(0.1, 0.12, 0.9, 10), 0x475569);
+  upper.position.set(0.35, 1.9, 0);
+  upper.rotation.z = -Math.PI / 3;
+  // Elbow
+  const elbow = mesh(new THREE.SphereGeometry(0.13, 10, 10), 0x64748b);
+  elbow.position.set(0.62, 2.25, 0);
+  // Forearm
+  const fore = mesh(new THREE.CylinderGeometry(0.07, 0.1, 0.7, 10), 0x475569);
+  fore.position.set(0.82, 2.5, 0);
+  fore.rotation.z = -Math.PI / 5;
+  // Torch tip
+  const torch = mesh(new THREE.ConeGeometry(0.06, 0.3, 8), 0xf97316);
+  torch.position.set(1.0, 2.75, 0);
+  torch.rotation.z = -Math.PI / 5;
+  [base, col, shoulder, upper, elbow, fore, torch].forEach(p => group.add(p));
+  return [base, col, shoulder, upper, elbow, fore, torch];
+}
+
+function buildPress(group) {
+  // Base
+  const base = mesh(new THREE.BoxGeometry(1.6, 0.25, 1.2), 0x334155);
+  base.position.y = 0.125;
+  // Left column
+  const colL = mesh(new THREE.BoxGeometry(0.2, 2.2, 0.2), 0x475569);
+  colL.position.set(-0.65, 1.25, 0);
+  // Right column
+  const colR = colL.clone();
+  colR.position.set(0.65, 1.25, 0);
+  // Crossbeam
+  const beam = mesh(new THREE.BoxGeometry(1.6, 0.25, 0.4), 0x334155);
+  beam.position.y = 2.35;
+  // Ram (hydraulic cylinder)
+  const ram = mesh(new THREE.CylinderGeometry(0.18, 0.18, 0.9, 12), 0x64748b);
+  ram.position.y = 1.6;
+  // Ram head
+  const head = mesh(new THREE.BoxGeometry(0.7, 0.15, 0.6), 0x94a3b8);
+  head.position.y = 1.1;
+  [base, colL, colR, beam, ram, head].forEach(p => group.add(p));
+  return [base, colL, colR, beam, ram, head];
+}
+
+function buildConveyor(group) {
+  // Frame bed (long)
+  const bed = mesh(new THREE.BoxGeometry(3.0, 0.15, 0.9), 0x334155);
+  bed.position.y = 0.7;
+  // Left leg
+  const legL = mesh(new THREE.BoxGeometry(0.12, 0.7, 0.12), 0x475569);
+  legL.position.set(-1.3, 0.35, 0.35);
+  // Right leg
+  const legR = legL.clone(); legR.position.set(-1.3, 0.35, -0.35);
+  const legL2 = legL.clone(); legL2.position.set(1.3, 0.35, 0.35);
+  const legR2 = legL.clone(); legR2.position.set(1.3, 0.35, -0.35);
+  // Rollers at each end
+  const rollerGeo = new THREE.CylinderGeometry(0.18, 0.18, 0.9, 16);
+  const r1 = mesh(rollerGeo, 0x64748b); r1.rotation.z = Math.PI/2; r1.position.set(-1.35, 0.7, 0);
+  const r2 = mesh(rollerGeo, 0x64748b); r2.rotation.z = Math.PI/2; r2.position.set( 1.35, 0.7, 0);
+  // Belt surface
+  const belt = mesh(new THREE.BoxGeometry(2.7, 0.06, 0.88), 0x1e293b);
+  belt.position.y = 0.8;
+  [bed, legL, legR, legL2, legR2, r1, r2, belt].forEach(p => group.add(p));
+  return [bed, legL, legR, legL2, legR2, r1, r2, belt];
+}
+
+function buildCompressor(group) {
+  // Main tank (horizontal cylinder)
+  const tank = mesh(new THREE.CylinderGeometry(0.55, 0.55, 1.6, 20), 0x334155);
+  tank.rotation.z = Math.PI / 2;
+  tank.position.y = 0.7;
+  // End caps
+  const capGeo = new THREE.SphereGeometry(0.55, 12, 8, 0, Math.PI*2, 0, Math.PI/2);
+  const capL = mesh(capGeo, 0x475569); capL.rotation.z = Math.PI/2;  capL.position.set(-0.8, 0.7, 0);
+  const capR = mesh(capGeo, 0x475569); capR.rotation.z = -Math.PI/2; capR.position.set( 0.8, 0.7, 0);
+  // Legs
+  const legGeo = new THREE.BoxGeometry(0.1, 0.7, 0.1);
+  const positions = [[-0.5,0.35,0.4],[-0.5,0.35,-0.4],[0.5,0.35,0.4],[0.5,0.35,-0.4]];
+  const legs = positions.map(([x,y,z]) => { const l = mesh(legGeo, 0x475569); l.position.set(x,y,z); return l; });
+  // Pressure gauge (small cylinder on top)
+  const gauge = mesh(new THREE.CylinderGeometry(0.08, 0.08, 0.25, 10), 0x94a3b8);
+  gauge.position.set(0, 1.3, 0);
+  // Pipe
+  const pipe = mesh(new THREE.CylinderGeometry(0.04, 0.04, 0.5, 8), 0x64748b);
+  pipe.position.set(0.3, 1.15, 0); pipe.rotation.z = Math.PI/4;
+  [tank, capL, capR, ...legs, gauge, pipe].forEach(p => group.add(p));
+  return [tank, capL, capR, ...legs, gauge, pipe];
+}
+
+function buildAssemblyArm(group) {
+  // Rotating base
+  const base = mesh(new THREE.CylinderGeometry(0.55, 0.65, 0.3, 16), 0x334155);
+  base.position.y = 0.15;
+  // Turret
+  const turret = mesh(new THREE.CylinderGeometry(0.3, 0.4, 0.4, 12), 0x475569);
+  turret.position.y = 0.5;
+  // Lower arm
+  const lower = mesh(new THREE.BoxGeometry(0.18, 1.0, 0.18), 0x475569);
+  lower.position.set(0, 1.2, 0);
+  // Elbow joint
+  const elbow = mesh(new THREE.SphereGeometry(0.18, 10, 10), 0x64748b);
+  elbow.position.set(0, 1.75, 0);
+  // Upper arm (angled)
+  const upper = mesh(new THREE.BoxGeometry(0.14, 0.85, 0.14), 0x475569);
+  upper.position.set(0.3, 2.1, 0); upper.rotation.z = -Math.PI / 5;
+  // Wrist
+  const wrist = mesh(new THREE.SphereGeometry(0.12, 10, 10), 0x64748b);
+  wrist.position.set(0.55, 2.45, 0);
+  // Gripper left
+  const gripL = mesh(new THREE.BoxGeometry(0.06, 0.3, 0.06), 0x94a3b8);
+  gripL.position.set(0.48, 2.65, 0.1); gripL.rotation.z = Math.PI/8;
+  // Gripper right
+  const gripR = gripL.clone();
+  gripR.position.set(0.62, 2.65, -0.1); gripR.rotation.z = -Math.PI/8;
+  [base, turret, lower, elbow, upper, wrist, gripL, gripR].forEach(p => group.add(p));
+  return [base, turret, lower, elbow, upper, wrist, gripL, gripR];
+}
+
+const BUILDERS = {
+  'CNC-001': buildCNC,   'CNC-002': buildCNC,
+  'WLD-001': buildWelder,'WLD-002': buildWelder,
+  'PRS-001': buildPress,
+  'CNV-001': buildConveyor,
+  'CMR-001': buildCompressor,
+  'ASM-001': buildAssemblyArm,
+};
+
+function makeMachine(mid) {
+  const pos = LAYOUT[mid];
+  if (!pos) return;
+
+  const group = new THREE.Group();
+  group.position.set(pos.x, 0, pos.z);
+  scene.add(group);
+
+  const builder = BUILDERS[mid] || buildCNC;
+  const parts = builder(group);
+
+  // Invisible hit-target box for raycasting
+  const hitGeo = new THREE.BoxGeometry(2.0, 2.6, 2.0);
+  const hitMat = new THREE.MeshBasicMaterial({ visible: false });
+  const hitMesh = new THREE.Mesh(hitGeo, hitMat);
+  hitMesh.position.y = 1.3;
+  hitMesh.userData.mid = mid;
+  group.add(hitMesh);
+
+  // Status ring on floor
+  const ringGeo = new THREE.RingGeometry(0.75, 0.95, 32);
+  const ringMat = new THREE.MeshBasicMaterial({ color: 0x6b7280, side: THREE.DoubleSide });
+  const ring = new THREE.Mesh(ringGeo, ringMat);
+  ring.rotation.x = -Math.PI / 2;
+  ring.position.y = 0.01;
+  group.add(ring);
+
+  machineObjects[mid] = { group, parts, ring, hitMesh };
+}
+
+function setMachineStatus(mid, status) {
+  const obj = machineObjects[mid];
+  if (!obj) return;
+  const col = STATUS_COLOR[status] || STATUS_COLOR.offline;
+  // Tint all parts
+  const glowing = status === 'error' || status === 'anomaly';
+  obj.parts.forEach(p => {
+    p.material.emissive.setHex(glowing ? col : 0x000000);
+    p.material.emissiveIntensity = glowing ? 0.25 : 0;
+  });
+  // Status ring
+  obj.ring.material.color.setHex(col);
+}
+
+// Build placeholders for all known machines
+Object.keys(LAYOUT).forEach(makeMachine);
+
+// ── Raycasting / tooltip ──────────────────────────────────────────────────────
+const raycaster = new THREE.Raycaster();
+const mouse     = new THREE.Vector2();
+const tooltip   = document.getElementById('tooltip');
+let hoveredMid  = null;
+
+function timeSince(iso) {
+  if (!iso) return '–';
+  const diff = Math.floor((Date.now() - new Date(iso)) / 1000);
+  if (diff < 60)   return diff + 's ago';
+  if (diff < 3600) return Math.floor(diff / 60) + 'm ago';
+  return Math.floor(diff / 3600) + 'h ago';
+}
+
+canvas.addEventListener('mousemove', e => {
+  const rect = canvas.getBoundingClientRect();
+  mouse.x =  ((e.clientX - rect.left)  / rect.width)  * 2 - 1;
+  mouse.y = -((e.clientY - rect.top)   / rect.height) * 2 + 1;
+
+  raycaster.setFromCamera(mouse, camera);
+  const meshes = Object.values(machineObjects).map(o => o.hitMesh);
+  const hits   = raycaster.intersectObjects(meshes);
+
+  if (hits.length) {
+    const mid = hits[0].object.userData.mid;
+    const m   = machines[mid];
+    if (m) {
+      hoveredMid = mid;
+      const hm = m.health_metrics || {};
+      document.getElementById('t-name').textContent   = m.name || mid;
+      document.getElementById('t-id').textContent     = mid;
+      document.getElementById('t-loc').textContent    = m.location || '–';
+      document.getElementById('t-status').innerHTML   = `<span class="badge ${m.status}">${m.status}</span>`;
+      document.getElementById('t-temp').textContent   = hm.temperature  != null ? hm.temperature  + ' °C'  : '–';
+      document.getElementById('t-vib').textContent    = hm.vibration    != null ? hm.vibration    + ' mm/s' : '–';
+      document.getElementById('t-pwr').textContent    = hm.power_consumption != null ? hm.power_consumption + ' kW' : '–';
+      document.getElementById('t-last').textContent   = timeSince(m.last_heartbeat);
+      tooltip.style.display = 'block';
+      tooltip.style.left = (e.clientX - rect.left + 14) + 'px';
+      tooltip.style.top  = (e.clientY - rect.top  - 10) + 'px';
+    }
+  } else {
+    hoveredMid = null;
+    tooltip.style.display = 'none';
+  }
+});
+
+canvas.addEventListener('mouseleave', () => { tooltip.style.display = 'none'; });
+
+// ── Resize ────────────────────────────────────────────────────────────────────
+function resize() {
+  const w = wrap.clientWidth, h = wrap.clientHeight;
+  renderer.setSize(w, h, false);
+  camera.aspect = w / h;
+  camera.updateProjectionMatrix();
+}
+new ResizeObserver(resize).observe(wrap);
+resize();
+
+// ── Animate ───────────────────────────────────────────────────────────────────
+let t = 0;
+function animate() {
+  requestAnimationFrame(animate);
+  t += 0.02;
+  // Pulse ring opacity for error; rotate running arms
+  Object.entries(machineObjects).forEach(([mid, obj]) => {
+    const m = machines[mid];
+    if (!m) return;
+    const col = STATUS_COLOR[m.status] || STATUS_COLOR.offline;
+    if (m.status === 'error' || m.status === 'anomaly') {
+      const pulse = 0.4 + Math.abs(Math.sin(t * 4)) * 0.6;
+      obj.ring.material.opacity = pulse;
+      obj.ring.material.transparent = true;
+      obj.parts.forEach(p => { p.material.emissiveIntensity = 0.15 + Math.abs(Math.sin(t * 4)) * 0.25; });
+    } else {
+      obj.ring.material.opacity = 1;
+      obj.ring.material.transparent = false;
+    }
+    // Slowly rotate welding robots and assembly arm when running
+    if (m.status === 'running' && (mid.startsWith('WLD') || mid === 'ASM-001')) {
+      obj.group.rotation.y += 0.004;
+    }
+    // Oscillate conveyor belt rollers
+    if (mid === 'CNV-001' && m.status === 'running') {
+      obj.parts.filter((_, i) => i === 5 || i === 6).forEach(r => { r.rotation.x += 0.05; });
+    }
+  });
+  controls.update();
+  renderer.render(scene, camera);
+}
+animate();
+
+// ── SSE ───────────────────────────────────────────────────────────────────────
+function connect() {
+  const es = new EventSource('/events');
+  es.onopen  = () => setConn(true);
+  es.onerror = () => { setConn(false); setTimeout(connect, 3000); es.close(); };
+  es.onmessage = e => {
+    const msg = JSON.parse(e.data);
+    if (msg.event === 'snapshot') {
+      msg.machines.forEach(m => {
+        machines[m.machine_id] = m;
+        if (!machineObjects[m.machine_id]) makeMachine(m.machine_id);
+        setMachineStatus(m.machine_id, m.status);
+      });
+    } else if (msg.event === 'heartbeat') {
+      machines[msg.machine_id] = {
+        ...machines[msg.machine_id],
+        status: msg.status,
+        last_heartbeat: msg.timestamp,
+        health_metrics: msg.health_metrics,
+      };
+      setMachineStatus(msg.machine_id, msg.status);
+    } else if (msg.event === 'status_change') {
+      if (machines[msg.machine_id]) machines[msg.machine_id].status = msg.status;
+      setMachineStatus(msg.machine_id, msg.status);
+    }
+  };
+}
+
+function setConn(live) {
+  document.getElementById('connDot').className = 'conn-dot' + (live ? ' live' : '');
+  document.getElementById('connStatus').textContent = live ? 'Live' : 'Reconnecting…';
+}
+
+connect();
+</script>
+</body>
+</html>

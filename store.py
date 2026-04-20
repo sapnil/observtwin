@@ -17,7 +17,7 @@ class HealthMetrics(BaseModel):
 class HeartbeatPayload(BaseModel):
     machine_id: str
     timestamp: datetime
-    status: str = Field(..., pattern="^(running|idle|error|offline)$")
+    status: str = Field(..., pattern="^(running|anomaly|error|offline)$")
     health_metrics: HealthMetrics = HealthMetrics()
     metadata: Optional[dict] = None
 

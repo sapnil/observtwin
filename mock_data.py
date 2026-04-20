@@ -17,24 +17,24 @@ MACHINES = [
 ]
 
 STATUS_WEIGHTS = {
-    "CNC-001": ["running"] * 7 + ["idle"] * 2 + ["error"],
-    "CNC-002": ["running"] * 6 + ["idle"] * 3 + ["error"],
-    "WLD-001": ["running"] * 8 + ["idle"],
-    "WLD-002": ["running"] * 5 + ["idle"] * 3 + ["error"] * 2,
-    "PRS-001": ["running"] * 6 + ["idle"] * 3 + ["offline"],
+    "CNC-001": ["running"] * 7 + ["anomaly"] * 2 + ["error"],
+    "CNC-002": ["running"] * 6 + ["anomaly"] * 3 + ["error"],
+    "WLD-001": ["running"] * 8 + ["anomaly"],
+    "WLD-002": ["running"] * 5 + ["anomaly"] * 3 + ["error"] * 2,
+    "PRS-001": ["running"] * 6 + ["anomaly"] * 3 + ["offline"],
     "CNV-001": ["running"] * 9,
-    "CMR-001": ["running"] * 4 + ["idle"] * 4 + ["error"] * 2,
-    "ASM-001": ["offline"] * 3 + ["running"] * 5 + ["idle"] * 2,
+    "CMR-001": ["running"] * 4 + ["anomaly"] * 4 + ["error"] * 2,
+    "ASM-001": ["offline"] * 3 + ["running"] * 5 + ["anomaly"] * 2,
 }
 
 CURRENT_STATUS = {
     "CNC-001": "running",
-    "CNC-002": "idle",
+    "CNC-002": "anomaly",
     "WLD-001": "running",
     "WLD-002": "error",
     "PRS-001": "running",
     "CNV-001": "running",
-    "CMR-001": "idle",
+    "CMR-001": "anomaly",
     "ASM-001": "offline",
 }
 
@@ -48,7 +48,7 @@ def _metrics(status: str, mid: str) -> dict:
                    "PRS-001": 3.0, "CNV-001": 1.2, "CMR-001": 2.8, "ASM-001": 1.5}
     base_power  = {"CNC-001": 12, "CNC-002": 11, "WLD-001": 22, "WLD-002": 20,
                    "PRS-001": 35, "CNV-001": 8,  "CMR-001": 18, "ASM-001": 9}
-    multiplier = 1.3 if status == "error" else (0.4 if status == "idle" else 1.0)
+    multiplier = 1.3 if status == "error" else (0.4 if status == "anomaly" else 1.0)
     return {
         "temperature":        round(base_temp[mid]  * multiplier + random.uniform(-3, 3), 1),
         "vibration":          round(base_vib[mid]   * multiplier + random.uniform(-0.2, 0.2), 2),

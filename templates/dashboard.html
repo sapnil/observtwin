@@ -33,7 +33,7 @@
   .summary-card .label { font-size: .75rem; color: var(--muted); text-transform: uppercase; letter-spacing: .05em; }
   .summary-card .value { font-size: 1.8rem; font-weight: 700; margin-top: 4px; }
   .summary-card.s-running .value { color: var(--green); }
-  .summary-card.s-idle    .value { color: var(--yellow); }
+  .summary-card.s-anomaly .value { color: var(--yellow); }
   .summary-card.s-error   .value { color: var(--red); }
   .summary-card.s-offline .value { color: var(--gray); }
 
@@ -48,10 +48,11 @@
   .machine-card::before { content: ''; position: absolute; top: 0; left: 0; right: 0; height: 3px; border-radius: 12px 12px 0 0; }
   .machine-card.running { border-color: rgba(34,197,94,.3); background: linear-gradient(135deg, var(--surface), var(--green-bg)); }
   .machine-card.running::before { background: var(--green); }
-  .machine-card.idle    { border-color: rgba(234,179,8,.3);  background: linear-gradient(135deg, var(--surface), var(--yellow-bg)); }
-  .machine-card.idle::before    { background: var(--yellow); }
+  .machine-card.anomaly { border-color: rgba(234,179,8,.3);  background: linear-gradient(135deg, var(--surface), var(--yellow-bg)); }
+  .machine-card.anomaly::before    { background: var(--yellow); }
   .machine-card.error   { border-color: rgba(239,68,68,.3);  background: linear-gradient(135deg, var(--surface), var(--red-bg)); }
   .machine-card.error::before   { background: var(--red); animation: flash 1s infinite; }
+  .machine-card.anomaly::before { background: var(--yellow); animation: flash 1s infinite; }
   .machine-card.offline { border-color: rgba(107,114,128,.3); }
   .machine-card.offline::before { background: var(--gray); }
   @keyframes flash { 0%,100%{opacity:1} 50%{opacity:.3} }
@@ -61,7 +62,7 @@
   .machine-id   { font-size: .75rem; color: var(--muted); margin-top: 2px; }
   .status-badge { padding: 3px 10px; border-radius: 20px; font-size: .72rem; font-weight: 600; text-transform: uppercase; letter-spacing: .05em; }
   .status-badge.running { background: var(--green-bg);  color: var(--green); }
-  .status-badge.idle    { background: var(--yellow-bg); color: var(--yellow); }
+  .status-badge.anomaly { background: var(--yellow-bg); color: var(--yellow); }
   .status-badge.error   { background: var(--red-bg);    color: var(--red); }
   .status-badge.offline { background: var(--gray-bg);   color: var(--gray); }
 
@@ -106,6 +107,7 @@
   <nav class="nav-links">
     <a href="/">Dashboard</a>
     <a href="/analytics">Analytics</a>
+    <a href="/shopfloor">3D Shop Floor</a>
     <a href="/docs" target="_blank">API Docs</a>
   </nav>
   <div class="conn-badge">
@@ -118,7 +120,7 @@
   <!-- Summary bar -->
   <div class="summary-bar">
     <div class="summary-card s-running"><div class="label">Running</div><div class="value" id="cnt-running">–</div></div>
-    <div class="summary-card s-idle">   <div class="label">Idle</div>   <div class="value" id="cnt-idle">–</div></div>
+    <div class="summary-card s-anomaly">   <div class="label">Anomaly</div>   <div class="value" id="cnt-anomaly">–</div></div>
     <div class="summary-card s-error">  <div class="label">Error</div>  <div class="value" id="cnt-error">–</div></div>
     <div class="summary-card s-offline"><div class="label">Offline</div><div class="value" id="cnt-offline">–</div></div>
     <div class="summary-card"><div class="label">Total Machines</div><div class="value" id="cnt-total">–</div></div>
@@ -244,10 +246,10 @@ function renderCard(mid) {
 }
 
 function updateSummary() {
-  const counts = {running:0, idle:0, error:0, offline:0};
+  const counts = {running:0, anomaly:0, error:0, offline:0};
   Object.values(machines).forEach(m => counts[m.status] = (counts[m.status]||0)+1);
   document.getElementById('cnt-running').textContent = counts.running;
-  document.getElementById('cnt-idle').textContent    = counts.idle;
+  document.getElementById('cnt-anomaly').textContent  = counts.anomaly;
   document.getElementById('cnt-error').textContent   = counts.error;
   document.getElementById('cnt-offline').textContent = counts.offline;
   document.getElementById('cnt-total').textContent   = Object.keys(machines).length;
