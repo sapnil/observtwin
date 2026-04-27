@@ -10,6 +10,7 @@ from typing import AsyncGenerator
 from fastapi import FastAPI, HTTPException, Request, BackgroundTasks
 from fastapi.responses import HTMLResponse, StreamingResponse, JSONResponse
 from fastapi.templating import Jinja2Templates
+import aiohttp
 
 import store
 from store import HeartbeatPayload, OFFLINE_THRESHOLD_SECONDS
@@ -17,6 +18,8 @@ from mock_data import seed
 
 app = FastAPI(title="Factory Digital Twin API", version="1.0.0")
 templates = Jinja2Templates(directory="templates")
+
+N8N_WEBHOOK_URL = "http://192.168.10.13:5678/webhook/522d8b55-afa6-47e4-9ffb-ab1597141c53/chat"
 
 # SSE subscriber queues
 _sse_subscribers: list[asyncio.Queue] = []
@@ -280,6 +283,33 @@ async def fleet_analytics(hours: int = 24):
             "total_records": total,
         }
     return {"hours_analyzed": hours, "fleet": fleet}
+
+
+# ── Chat Proxy ────────────────────────────────────────────────────────────
+
+@app.post("/api/chat", tags=["Chat"], summary="Proxy chat to n8n")
+async def chat_proxy(request: Request):
+    """Forward chat messages to the n8n webhook and stream NDJSON back."""
+    body = await request.json()
+    payload = {
+        "sessionId": body.get("sessionId", ""),
+        "action": "sendMessage",
+        "chatInput": body.get("chatInput", ""),
+    }
+
+    timeout = aiohttp.ClientTimeout(total=300, connect=10)
+    try:
+        async with aiohttp.ClientSession(timeout=timeout) as session:
+            async with session.post(N8N_WEBHOOK_URL, json=payload) as resp:
+                data = await resp.read()
+                return StreamingResponse(
+                    iter([data]),
+                    media_type="application/x-ndjson",
+                )
+    except aiohttp.ClientConnectorError:
+        return JSONResponse({"error": "Cannot reach chat backend"}, status_code=502)
+    except asyncio.TimeoutError:
+        return JSONResponse({"error": "Chat backend timed out"}, status_code=504)
 
 
 # ── UI Routes ─────────────────────────────────────────────────────────────────

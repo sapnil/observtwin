@@ -6,7 +6,7 @@ A real-time digital twin system for monitoring factory machines via heartbeat AP
 
 ```bash
 pip install -r requirements.txt
-uvicorn app:main --reload --port 8000
+uvicorn app:app --reload --port 8000
 ```
 
 Open **http://localhost:8000** for the dashboard, **http://localhost:8000/analytics** for analytics,
