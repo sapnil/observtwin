@@ -6,7 +6,7 @@ A real-time digital twin system for monitoring factory machines via heartbeat AP
 
 ```bash
 pip install -r requirements.txt
-uvicorn app:main --reload --port 8000
+uvicorn app:app --host 0.0.0.0 --reload --port 8000
 ```
 
 Open **http://localhost:8000** for the dashboard, **http://localhost:8000/analytics** for analytics,
@@ -228,3 +228,12 @@ On startup, `mock_data.py` seeds **8 machines** with **48 hours** of heartbeat h
 | CNV-001 | running |
 | CMR-001 | idle |
 | ASM-001 | offline |
+
+
+# Option 1 – via python module (always works regardless of PATH)
+python -m uvicorn app:app --reload --port 8000
+
+# Option 2 – add Scripts dir to PATH first, then
+uvicorn app:app --reload --port 8000
+
+python -m uvicorn app:app --host 192.168.10.126 --reload --port 8000
