@@ -60,6 +60,29 @@ Receive a heartbeat from a machine.
 
 ---
 
+### POST `/api/sensor/heartbeat`
+Receive a heartbeat from a factory sensor and trigger alarms if needed.
+
+**Request body:**
+```json
+{
+  "sensor_id": "CAM-001",
+  "timestamp": "2024-01-15T10:30:00Z",
+  "status": "Normal",
+  "image_frame": "data:image/jpeg;base64,/9j/4AAQSkZJRgABAQ..."
+}
+```
+*Note: `image_frame` is an optional base64 encoded string (max 5MB) of the latest camera frame.*
+
+**Status values:** `Normal` | `Smoke Detected` | `Human Detected`
+
+**Response `202`:**
+```json
+{ "accepted": true, "sensor_id": "CAM-001", "status": "Normal" }
+```
+
+---
+
 ### GET `/api/machines`
 Returns current state of all known machines.
 

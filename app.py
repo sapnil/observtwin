@@ -12,8 +12,11 @@ from fastapi.responses import HTMLResponse, StreamingResponse, JSONResponse
 from fastapi.templating import Jinja2Templates
 
 import store
-from store import HeartbeatPayload, OFFLINE_THRESHOLD_SECONDS
+from store import HeartbeatPayload, SensorHeartbeatPayload, SensorStatus, OFFLINE_THRESHOLD_SECONDS
 from mock_data import seed
+import logging
+
+logger = logging.getLogger(__name__)
 
 app = FastAPI(title="Factory Digital Twin API", version="1.0.0")
 templates = Jinja2Templates(directory="templates")
@@ -158,6 +161,49 @@ async def receive_heartbeat(payload: HeartbeatPayload):
 
     _broadcast({"event": "heartbeat", **record})
     return {"accepted": True, "machine_id": mid, "status": payload.status}
+
+
+# ── Hardware / Notification Mock Functions ────────────────────────────────────
+
+def trigger_hardware_alarm(sensor_id: str, status: str):
+    logger.warning(f"HARDWARE ALARM ACTIVATED for sensor {sensor_id} due to {status}")
+
+def send_notification(sensor_id: str, status: str, timestamp: str):
+    email_template = f"ALERT: {status} detected by sensor {sensor_id} at {timestamp}"
+    sms_template = f"Factory Alarm: {status} at {sensor_id}"
+    logger.info(f"Sending Email: {email_template}")
+    logger.info(f"Sending SMS: {sms_template}")
+
+
+# ── Sensor Heartbeat API ──────────────────────────────────────────────────────
+# This endpoint is for factory sensors (e.g. smoke, human presence) to report their status.
+# Status Values: Normal, Smoke Detected, Human Detected
+@app.post("/api/sensor/heartbeat", status_code=202, tags=["Heartbeat"],
+          summary="Receive sensor heartbeat",
+          description="Accepts a heartbeat from a factory sensor and triggers alarms if needed. Status Values: Normal, Smoke Detected, Human Detected, image_frame (base64 string of latest camera frame).")
+async def receive_sensor_heartbeat(payload: SensorHeartbeatPayload):
+    sid = payload.sensor_id
+    status = payload.status
+
+    if status in (SensorStatus.SMOKE_DETECTED, SensorStatus.HUMAN_DETECTED):
+        alert = {
+            "machine_id": sid,
+            "timestamp": payload.timestamp.isoformat(),
+            "alert_type": "sensor_alarm",
+            "previous_status": "Normal",
+            "current_status": status.value,
+            "message": f"Sensor {sid} reported {status.value}"
+        }
+        if payload.image_frame:
+            alert["image_frame"] = payload.image_frame
+        
+        store.alerts.append(alert)
+        _broadcast({"event": "alert", **alert})
+
+        send_notification(sid, status.value, payload.timestamp.isoformat())
+        trigger_hardware_alarm(sid, status.value)
+
+    return {"accepted": True, "sensor_id": sid, "status": status.value}
 
 
 # ── Machine APIs ──────────────────────────────────────────────────────────────
