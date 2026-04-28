@@ -1,6 +1,6 @@
 from collections import deque
 from datetime import datetime, timezone
-from typing import Optional
+from typing import Dict, Optional
 from pydantic import BaseModel, Field
 
 
@@ -34,13 +34,13 @@ class Alert(BaseModel):
 # ── In-memory stores ──────────────────────────────────────────────────────────
 
 # Latest state per machine
-machines: dict[str, dict] = {}
+machines: Dict[str, dict] = {}
 
 # Heartbeat history per machine  {machine_id: deque of dicts}
-heartbeat_history: dict[str, deque] = {}
+heartbeat_history: Dict[str, deque] = {}
 
 # Global alert log
 alerts: deque = deque(maxlen=200)
 
 # Per-machine offline threshold override (seconds)
-offline_thresholds: dict[str, int] = {}
+offline_thresholds: Dict[str, int] = {}

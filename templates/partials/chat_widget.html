@@ -170,11 +170,24 @@
 
 <script>
 (function() {
+  // ── Helpers ─────────────────────────────────────────────────────────────
+  function generateUUID() {
+    // crypto.randomUUID() requires secure context (HTTPS/localhost).
+    // Fallback for plain HTTP access over LAN.
+    if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+      return crypto.randomUUID();
+    }
+    return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
+      var r = Math.random() * 16 | 0;
+      return (c === 'x' ? r : (r & 0x3 | 0x8)).toString(16);
+    });
+  }
+
   // ── State ──────────────────────────────────────────────────────────────
   var SESSION_KEY = 'chat_session_id';
   var sessionId = localStorage.getItem(SESSION_KEY);
   if (!sessionId) {
-    sessionId = crypto.randomUUID();
+    sessionId = generateUUID();
     localStorage.setItem(SESSION_KEY, sessionId);
   }
 
@@ -204,7 +217,7 @@
 
   // ── New Chat ───────────────────────────────────────────────────────────
   newBtn.addEventListener('click', function() {
-    sessionId = crypto.randomUUID();
+    sessionId = generateUUID();
     localStorage.setItem(SESSION_KEY, sessionId);
     msgArea.innerHTML = '<div class="chat-msg chat-msg-assistant">' + WELCOME + '</div>';
     input.value = '';
