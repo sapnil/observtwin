@@ -5,11 +5,12 @@ import asyncio
 import json
 from collections import deque
 from datetime import datetime, timedelta, timezone
-from typing import AsyncGenerator
+from typing import AsyncGenerator, Dict, List
 
 from fastapi import FastAPI, HTTPException, Request, BackgroundTasks
 from fastapi.responses import HTMLResponse, StreamingResponse, JSONResponse
 from fastapi.templating import Jinja2Templates
+import requests
 
 import store
 from store import HeartbeatPayload, SensorHeartbeatPayload, SensorStatus, OFFLINE_THRESHOLD_SECONDS
@@ -21,8 +22,10 @@ logger = logging.getLogger(__name__)
 app = FastAPI(title="Factory Digital Twin API", version="1.0.0")
 templates = Jinja2Templates(directory="templates")
 
+N8N_WEBHOOK_URL = "https://2dd4-106-51-87-203.ngrok-free.app/webhook/522d8b55-afa6-47e4-9ffb-ab1597141c53/chat"
+
 # SSE subscriber queues
-_sse_subscribers: list[asyncio.Queue] = []
+_sse_subscribers: List[asyncio.Queue] = []
 
 
 # ── Startup ───────────────────────────────────────────────────────────────────
@@ -279,7 +282,7 @@ async def get_analytics(machine_id: str, hours: int = 24):
     if not records:
         return {"machine_id": machine_id, "hours": hours, "message": "No data in range"}
 
-    status_counts: dict[str, int] = {}
+    status_counts: Dict[str, int] = {}
     for r in records:
         status_counts[r["status"]] = status_counts.get(r["status"], 0) + 1
 
@@ -326,6 +329,53 @@ async def fleet_analytics(hours: int = 24):
             "total_records": total,
         }
     return {"hours_analyzed": hours, "fleet": fleet}
+
+
+# ── Chat Proxy ────────────────────────────────────────────────────────────
+
+@app.post("/api/chat", tags=["Chat"], summary="Proxy chat to n8n")
+async def chat_proxy(request: Request):
+    """Forward chat messages to the n8n webhook and stream NDJSON back."""
+    body = await request.json()
+    payload = {
+        "sessionId": body.get("sessionId", ""),
+        "action": "sendMessage",
+        "chatInput": body.get("chatInput", ""),
+    }
+
+    queue: asyncio.Queue = asyncio.Queue()
+    loop = asyncio.get_event_loop()
+
+    def _fetch():
+        """Run blocking requests.post in a thread, push chunks to queue."""
+        try:
+            resp = requests.post(
+                N8N_WEBHOOK_URL, json=payload, stream=True, timeout=(10, 300)
+            )
+            for chunk in resp.iter_content(chunk_size=None):
+                if chunk:
+                    loop.call_soon_threadsafe(queue.put_nowait, chunk)
+        except requests.ConnectionError:
+            err = json.dumps({"error": "Cannot reach chat backend"}).encode() + b"\n"
+            loop.call_soon_threadsafe(queue.put_nowait, err)
+        except requests.Timeout:
+            err = json.dumps({"error": "Chat backend timed out"}).encode() + b"\n"
+            loop.call_soon_threadsafe(queue.put_nowait, err)
+        except Exception:
+            err = json.dumps({"error": "Chat backend error"}).encode() + b"\n"
+            loop.call_soon_threadsafe(queue.put_nowait, err)
+        finally:
+            loop.call_soon_threadsafe(queue.put_nowait, None)  # sentinel
+
+    async def generate():
+        asyncio.get_event_loop().run_in_executor(None, _fetch)
+        while True:
+            chunk = await queue.get()
+            if chunk is None:
+                break
+            yield chunk
+
+    return StreamingResponse(generate(), media_type="application/x-ndjson")
 
 
 # ── UI Routes ─────────────────────────────────────────────────────────────────
