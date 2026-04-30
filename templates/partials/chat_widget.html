@@ -287,58 +287,78 @@
     var cacheKey = isQuick ? text : null;
 
     // Stream response
+    var bubble = null;
+
     fetch('/api/chat', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ sessionId: sessionId, chatInput: text })
     }).then(function(res) {
       if (!res.ok) throw new Error('HTTP ' + res.status);
-      if (typing.parentNode) typing.parentNode.removeChild(typing);
-
-      // Create assistant bubble
-      var bubble = document.createElement('div');
-      bubble.className = 'chat-msg chat-msg-assistant';
-      msgArea.appendChild(bubble);
 
       var accumulated = '';
+      var errorMsg = '';
       var reader = res.body.getReader();
       var decoder = new TextDecoder();
       var buffer = '';
 
+      function processLine(line) {
+        if (!line) return;
+        try {
+          var obj = JSON.parse(line);
+          if (obj.error) {
+            errorMsg = obj.error;
+          } else if (obj.type === 'item' && obj.content) {
+            // Remove typing dots on first real content
+            if (!bubble) {
+              if (typing.parentNode) typing.parentNode.removeChild(typing);
+              bubble = document.createElement('div');
+              bubble.className = 'chat-msg chat-msg-assistant';
+              msgArea.appendChild(bubble);
+            }
+            accumulated += obj.content;
+          }
+        } catch(e) {}
+      }
+
       function read() {
         reader.read().then(function(result) {
           if (result.done) {
-            // Process any remaining buffer
-            if (buffer.trim()) {
-              try {
-                var obj = JSON.parse(buffer);
-                if (obj.type === 'item' && obj.content) {
-                  accumulated += obj.content;
-                }
-              } catch(e) {}
+            if (buffer.trim()) processLine(buffer.trim());
+            if (typing.parentNode) typing.parentNode.removeChild(typing);
+            if (errorMsg && !accumulated) {
+              appendMsg('assistant', 'Error: ' + errorMsg);
+              sending = false;
+              sendBtn.disabled = !input.value.trim();
+            } else {
+              if (!bubble) {
+                bubble = document.createElement('div');
+                bubble.className = 'chat-msg chat-msg-assistant';
+                msgArea.appendChild(bubble);
+              }
+              if (cacheKey && accumulated) quickCache[cacheKey] = accumulated;
+              finalize(bubble, accumulated);
             }
-            if (cacheKey) quickCache[cacheKey] = accumulated;
-            finalize(bubble, accumulated);
             return;
           }
           buffer += decoder.decode(result.value, { stream: true });
           var lines = buffer.split('\n');
-          buffer = lines.pop(); // keep incomplete last line
-
+          buffer = lines.pop();
           for (var i = 0; i < lines.length; i++) {
-            var line = lines[i].trim();
-            if (!line) continue;
-            try {
-              var obj = JSON.parse(line);
-              if (obj.type === 'item' && obj.content) {
-                accumulated += obj.content;
-              }
-            } catch(e) {}
+            processLine(lines[i].trim());
           }
-          renderMarkdown(bubble, accumulated);
-          scrollBottom();
+          if (bubble && accumulated) {
+            renderMarkdown(bubble, accumulated);
+            scrollBottom();
+          }
           read();
         }).catch(function(err) {
+          if (typing.parentNode) typing.parentNode.removeChild(typing);
+          if (!bubble) {
+            bubble = document.createElement('div');
+            bubble.className = 'chat-msg chat-msg-assistant';
+            msgArea.appendChild(bubble);
+          }
           finalize(bubble, accumulated || 'Sorry, something went wrong.');
         });
       }

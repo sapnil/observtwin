@@ -22,7 +22,7 @@ logger = logging.getLogger(__name__)
 app = FastAPI(title="Factory Digital Twin API", version="1.0.0")
 templates = Jinja2Templates(directory="templates")
 
-N8N_WEBHOOK_URL = "https://2dd4-106-51-87-203.ngrok-free.app/webhook/522d8b55-afa6-47e4-9ffb-ab1597141c53/chat"
+N8N_WEBHOOK_URL = "http://192.168.10.13:5678/webhook/522d8b55-afa6-47e4-9ffb-ab1597141c53/chat"
 
 # SSE subscriber queues
 _sse_subscribers: List[asyncio.Queue] = []
