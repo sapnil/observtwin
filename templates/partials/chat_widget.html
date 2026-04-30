@@ -85,7 +85,10 @@
   .chat-msg-assistant a { color: #60a5fa; }
 
   /* ── Typing indicator ───────────────────────────────────────────────── */
-  .chat-typing { align-self: flex-start; display: flex; gap: 5px; padding: 10px 16px; }
+  .chat-typing {
+    align-self: flex-start; display: flex; gap: 5px; padding: 10px 16px;
+    background: rgba(255,255,255,.06); border-radius: 12px; border-bottom-left-radius: 4px;
+  }
   .chat-typing-dot {
     width: 7px; height: 7px; border-radius: 50%; background: var(--muted, #64748b);
     animation: chat-bounce .6s infinite alternate;
